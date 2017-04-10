@@ -1,7 +1,22 @@
 // @flow weak
 const { Writable } = require('stream')
+const promiseRetry = require('promise-retry')
 
-const { retryAWS } = require('./dropship')
+
+const retryAWS = (client/*: Object */, funcName/*: string */, params/*: Object */)/*: Promise<Object> */ =>
+  promiseRetry((retry/*: function */, number/*: number */) => {
+    if (number > 1) {
+      // log.warn('AWS %s.%s attempt: %d', client.constructor.__super__.serviceIdentifier, funcName, number);
+    }
+    return client[funcName](client, params).promise()
+      .catch((err) => {
+        if (!err.retryable) {
+          throw new Error(err)
+        }
+
+        retry(err)
+      })
+  })
 
 
 class KinesisWritable extends Writable {
