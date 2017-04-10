@@ -4,7 +4,9 @@
   "description": "Kinesis writable stream that buffers up records",
   "main": "index.js",
   "scripts": {
-    "test": "eslint . && istanbul cover --print both _mocha test",
+    "lint": "eslint .",
+    "pretest": "eslint .",
+    "test": "istanbul cover --print both _mocha test",
     "preversion": "jsdoc2md index.js > api.md"
   },
   "repository": {
@@ -26,7 +28,11 @@
   "devDependencies": {
     "chai": "^3.4.0",
     "eslint": "^3.19.0",
-    "eslint-config-vgno": "^7.0.0",
+    "eslint-config-standard": "^10.2.0",
+    "eslint-plugin-import": "^2.2.0",
+    "eslint-plugin-node": "^4.2.2",
+    "eslint-plugin-promise": "^3.5.0",
+    "eslint-plugin-standard": "^3.0.1",
     "istanbul": "^0.4.0",
     "jsdoc-to-markdown": "^3.0.0",
     "mocha": "^3.2.0",

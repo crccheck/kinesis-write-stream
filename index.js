@@ -1,173 +1,102 @@
-'use strict';
+// @flow weak
+const { Writable } = require('stream')
 
-var util = require('util'),
-    assert = require('assert'),
-    retryFn = require('retry-fn'),
-    FlushWritable = require('flushwritable'),
-    _ = require('lodash');
+const { retryAWS } = require('./dropship')
 
-util.inherits(KinesisWritable, FlushWritable);
 
-/**
- * A simple stream wrapper around Kinesis putRecords
- *
- * @param {AWS.Kinesis} client AWS Kinesis client
- * @param {string} streamName Kinesis stream name
- * @param {Object} options Options
- * @param {number} [options.highWaterMark=16] Number of items to buffer before writing.
- * Also the size of the underlying stream buffer.
- * @param {Number} [options.maxRetries=3] How many times to retry failed data before
- * rasing an error
- * @param {Number} [options.retryTimeout=100] How long to wait initially before
- * retrying failed records
- * @param {Object} [options.logger] Instance of a logger like bunyan or winston
- */
-function KinesisWritable(client, streamName, options) {
-    assert(client, 'client is required');
-    assert(streamName, 'streamName is required');
+class KinesisWritable extends Writable {
+  /*:: client: Object */
+  /*:: logger: {debug: Function, info: Function, warn: Function} */
+  /*:: queue: Object[] */
+  /*:: streamName: string */
+  /*:: highWaterMark: number */
+  constructor (client, streamName, {highWaterMark = 16, logger} = {}) {
+    super({objectMode: true, highWaterMark: Math.min(highWaterMark, 500)})
+    this.cork()
 
-    options = options || {};
-    options.objectMode = true;
+    this.client = client
+    this.streamName = streamName
+    this.logger = logger || {debug: () => null, info: () => null, warn: () => null}
+    if (highWaterMark > 500) {
+      this.logger.warn('The maximum number of records that can be added is 500, not %d', highWaterMark)
+      highWaterMark = 500
+    }
+    this.highWaterMark = highWaterMark
 
-    FlushWritable.call(this, options);
+    this.queue = []
+  }
 
-    this.client = client;
-    this.streamName = streamName;
-    this.logger = options.logger || null;
-    this.highWaterMark = options.highWaterMark || 16;
-    this.maxRetries = options.maxRetries || 3;
+  // eslint-disable-next-line no-unused-vars
+  getPartitionKey (record) {
+    return '0'
+  };
 
-    // The maximum number of items that can be written to Kinesis in
-    // one request is 500
-    assert(this.highWaterMark <= 500, 'Max highWaterMark is 500');
-
-    this.queue = [];
-}
-
-/* eslint-disable no-unused-vars */
-
-/**
- * Get partition key for given record
- *
- * @param {Object} [record] Record
- * @return {string}
- */
-KinesisWritable.prototype.getPartitionKey = function getPartitionKey(record) {
-    return _.padStart(_.random(0, 1000), 4, '0');
-};
-
-/* eslint-enable no-unused-vars */
-
-/**
- * Transform record into one accepted by Kinesis
- *
- * @private
- * @param {Object} record
- * @return {Object}
- */
-KinesisWritable.prototype.transformRecord = function transformRecord(record) {
+  prepRecord (record) {
     return {
-        Data: JSON.stringify(record),
-        PartitionKey: this.getPartitionKey(record)
-    };
-};
-
-/**
- * Write records in queue to Kinesis
- *
- * @private
- * @param {Function} callback
- */
-KinesisWritable.prototype.writeRecords = function writeRecords(callback) {
-    if (this.logger) {
-        this.logger.debug('Writing %d records to Kinesis', this.queue.length);
+      Data: JSON.stringify(record),
+      PartitionKey: this.getPartitionKey(record),
     }
+  };
 
-    var records = this.queue.map(this.transformRecord.bind(this));
+  writeRecords (callback) {
+    this.logger.debug('Writing %d records to Kinesis', this.queue.length)
 
-    this.client.putRecords({
-        Records: records,
-        StreamName: this.streamName
-    }, function(err, response) {
-        if (err) {
-            return callback(err);
-        }
+    const records = this.queue.map(this.prepRecord.bind(this))
 
-        if (this.logger) {
-            this.logger.info('Wrote %d records to Kinesis',
-                records.length - response.FailedRecordCount);
-        }
+    retryAWS(this.client, 'putRecords', {
+      Records: records,
+      StreamName: this.streamName,
+    })
+    .then((response) => {
+      this.logger.info('Wrote %d records to Kinesis', records.length - response.FailedRecordCount)
 
-        if (response.FailedRecordCount !== 0) {
-            if (this.logger) {
-                this.logger.warn('Failed writing %d records to Kinesis',
-                    response.FailedRecordCount);
-            }
+      if (response.FailedRecordCount !== 0) {
+        this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
 
-            var failedRecords = [];
+        const failedRecords = []
 
-            response.Records.forEach(function(record, index) {
-                if (record.ErrorCode) {
-                    if (this.logger) {
-                        this.logger.warn('Failed record with message: %s', record.ErrorMessage);
-                    }
+        response.Records.forEach((record, index) => {
+          if (record.ErrorCode) {
+            this.logger.warn('Failed record with message: %s', record.ErrorMessage)
+            failedRecords.push(this.queue[index])
+          }
+        })
 
-                    failedRecords.push(this.queue[index]);
-                }
-            }.bind(this));
+        this.queue = failedRecords
 
-            this.queue = failedRecords;
+        return callback(new Error('Failed to write ' + failedRecords.length + ' records'))
+      }
 
-            return callback(new Error('Failed to write ' + failedRecords.length + ' records'));
-        }
+      this.queue = []
 
-        this.queue = [];
+      return callback()
+    })
+    .catch((err) => callback(err))
+  };
 
-        return callback();
-    }.bind(this));
-};
+  _write (data, encoding, callback) {
+    this.logger.debug('Adding to Kinesis queue', data)
 
-/**
- * Flush method needed by the underlying stream implementation
- *
- * @private
- * @param {Function} callback
- * @return {undefined}
- */
-KinesisWritable.prototype._flush = function _flush(callback) {
-    if (this.queue.length === 0) {
-        return callback();
-    }
-
-    var retry = retryFn.bind(null, {
-        retries: this.maxRetries,
-        timeout: retryFn.fib(this.retryTimeout)
-    });
-
-    return retry(this.writeRecords.bind(this), callback);
-};
-
-/**
- * Write method needed by the underlying stream implementation
- *
- * @private
- * @param {Object} record
- * @param {string} enc
- * @param {Function} callback
- * @returns {undefined}
- */
-KinesisWritable.prototype._write = function _write(record, enc, callback) {
-    if (this.logger) {
-        this.logger.debug('Adding to Kinesis queue', { record: record });
-    }
-
-    this.queue.push(record);
+    this.queue.push(data)
 
     if (this.queue.length >= this.highWaterMark) {
-        return this._flush(callback);
+      process.nextTick(() => {
+        this.uncork()
+        callback()
+      })
     }
 
-    return callback();
+    return callback()
+  }
+
+  _writev (chunks, callback) {
+    console.log('_writev', chunks, this.queue)
+    if (this.queue.length === 0) {
+      return callback()
+    }
+
+    return this.writeRecords(callback)
+  };
 };
 
-module.exports = KinesisWritable;
+module.exports = KinesisWritable
