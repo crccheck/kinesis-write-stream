@@ -53,7 +53,7 @@ function KinesisWritable(client, streamName, options) {
  * @return {string}
  */
 KinesisWritable.prototype.getPartitionKey = function getPartitionKey(record) {
-    return _.padLeft(_.random(0, 1000), 4, '0');
+    return _.padStart(_.random(0, 1000), 4, '0');
 };
 
 /* eslint-enable no-unused-vars */
@@ -123,7 +123,7 @@ KinesisWritable.prototype.writeRecords = function writeRecords(callback) {
 
         this.queue = [];
 
-        callback();
+        return callback();
     }.bind(this));
 };
 
@@ -144,7 +144,7 @@ KinesisWritable.prototype._flush = function _flush(callback) {
         timeout: retryFn.fib(this.retryTimeout)
     });
 
-    retry(this.writeRecords.bind(this), callback);
+    return retry(this.writeRecords.bind(this), callback);
 };
 
 /**
@@ -167,7 +167,7 @@ KinesisWritable.prototype._write = function _write(record, enc, callback) {
         return this._flush(callback);
     }
 
-    callback();
+    return callback();
 };
 
 module.exports = KinesisWritable;
