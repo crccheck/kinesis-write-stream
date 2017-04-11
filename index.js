@@ -30,6 +30,23 @@ class KinesisWritable extends Writable {
     this.queue = []
   }
 
+  _write (data, encoding, callback) {
+    this.logger.debug('Adding to Kinesis queue', data)
+
+    this.queue.push(data)
+
+    if (this.queue.length >= this.highWaterMark) {
+      return this.writeRecords(callback)
+    }
+
+    if (this._queueCheckTimer) {
+      clearTimeout(this._queueCheckTimer)
+    }
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
+
+    callback()
+  }
+
   // eslint-disable-next-line no-unused-vars
   getPartitionKey (record) {
     return '0'
@@ -45,8 +62,7 @@ class KinesisWritable extends Writable {
   writeRecords (callback) {
     if (!this.queue.length) {
       callback()
-      console.log(callback)
-      return
+      return  // Nothing to do
     }
     this.logger.debug('Writing %d records to Kinesis', this.queue.length)
 
@@ -79,23 +95,6 @@ class KinesisWritable extends Writable {
     })
     .catch((err) => callback(err))
   };
-
-  _write (data, encoding, callback) {
-    this.logger.debug('Adding to Kinesis queue', data)
-
-    this.queue.push(data)
-
-    if (this.queue.length >= this.highWaterMark) {
-      return this.writeRecords(callback)
-    }
-
-    if (this._queueCheckTimer) {
-      clearTimeout(this._queueCheckTimer)
-    }
-    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
-
-    callback()
-  }
 
   retryAWS (funcName/*: string */, params/*: Object */)/*: Promise<Object> */ {
     return promiseRetry((retry/*: function */, number/*: number */) => {
