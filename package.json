@@ -26,6 +26,8 @@
   },
   "homepage": "https://github.com/voldern/kinesis-write-stream#readme",
   "devDependencies": {
+    "aws-sdk": "^2.40.0",
+    "bunyan": "^1.8.10",
     "chai": "^3.4.0",
     "eslint": "^3.19.0",
     "eslint-config-standard": "^10.2.0",
