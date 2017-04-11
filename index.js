@@ -58,7 +58,7 @@ class KinesisWritable extends Writable {
     const queueLength = this.queue.length
     this.logger.debug('Writing %d records to Kinesis', queueLength)
 
-    const dataToPut = this.queue.splice(0, this.queue.length)
+    const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
     const records = dataToPut.map(this.prepRecord.bind(this))
 
     retryAWS(this.client, 'putRecords', {
