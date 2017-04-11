@@ -7,6 +7,7 @@
     "lint": "eslint .",
     "pretest": "eslint .",
     "test": "istanbul cover --print both _mocha test",
+    "tdd": "mocha --watch --bail test",
     "preversion": "jsdoc2md index.js > api.md"
   },
   "repository": {

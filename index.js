@@ -1,11 +1,15 @@
 // @flow weak
-const { Writable } = require('stream')
 const promiseRetry = require('promise-retry')
+const FlushWritable = require('flushwritable')
 
 
 function voidFunction () {}
 
-class KinesisWritable extends Writable {
+const PROMISE_RETRY_OPTIONS = {
+  minTimeout: 500,
+}
+
+class KinesisWritable extends FlushWritable {
   /*:: client: Object */
   /*:: logger: {debug: Function, info: Function, warn: Function} */
   /*:: queue: Object[] */
@@ -16,7 +20,14 @@ class KinesisWritable extends Writable {
   constructor (client, streamName, {highWaterMark = 16, logger, wait = 500} = {}) {
     super({objectMode: true, highWaterMark: Math.min(highWaterMark, 500)})
 
+    if (!client) {
+      throw new Error('client is required')
+    }
     this.client = client
+
+    if (!streamName) {
+      throw new Error('streamName is required')
+    }
     this.streamName = streamName
     this.logger = logger || {debug: () => null, info: () => null, warn: () => null}
     if (highWaterMark > 500) {
@@ -45,6 +56,13 @@ class KinesisWritable extends Writable {
     this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
 
     callback()
+  }
+
+  _flush (callback) {
+    if (this._queueCheckTimer) {
+      clearTimeout(this._queueCheckTimer)
+    }
+    this.writeRecords(callback)  // TODO what if this.queue.length > this.highWaterMark?
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -110,7 +128,7 @@ class KinesisWritable extends Writable {
 
           retry(err)
         })
-    })
+    }, PROMISE_RETRY_OPTIONS)
   }
 }
 
