@@ -8,7 +8,7 @@ const retryAWS = (client/*: Object */, funcName/*: string */, params/*: Object *
     if (number > 1) {
       // log.warn('AWS %s.%s attempt: %d', client.constructor.__super__.serviceIdentifier, funcName, number);
     }
-    return client[funcName](client, params).promise()
+    return client[funcName](params).promise()
       .catch((err) => {
         if (!err.retryable) {
           throw new Error(err)
@@ -25,9 +25,9 @@ class KinesisWritable extends Writable {
   /*:: queue: Object[] */
   /*:: streamName: string */
   /*:: highWaterMark: number */
+  /*:: _queueCheckTimer: number */
   constructor (client, streamName, {highWaterMark = 16, logger} = {}) {
     super({objectMode: true, highWaterMark: Math.min(highWaterMark, 500)})
-    this.cork()
 
     this.client = client
     this.streamName = streamName
@@ -37,6 +37,7 @@ class KinesisWritable extends Writable {
       highWaterMark = 500
     }
     this.highWaterMark = highWaterMark
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(() => null), 500)
 
     this.queue = []
   }
@@ -54,9 +55,11 @@ class KinesisWritable extends Writable {
   };
 
   writeRecords (callback) {
-    this.logger.debug('Writing %d records to Kinesis', this.queue.length)
+    const queueLength = this.queue.length
+    this.logger.debug('Writing %d records to Kinesis', queueLength)
 
-    const records = this.queue.map(this.prepRecord.bind(this))
+    const dataToPut = this.queue.splice(0, this.queue.length)
+    const records = dataToPut.map(this.prepRecord.bind(this))
 
     retryAWS(this.client, 'putRecords', {
       Records: records,
@@ -69,22 +72,18 @@ class KinesisWritable extends Writable {
         this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
 
         const failedRecords = []
-
-        response.Records.forEach((record, index) => {
+        response.Records.forEach((record, idx) => {
           if (record.ErrorCode) {
             this.logger.warn('Failed record with message: %s', record.ErrorMessage)
-            failedRecords.push(this.queue[index])
+            failedRecords.push(dataToPut[idx])
           }
         })
+        this.queue.unshift(...failedRecords)
 
-        this.queue = failedRecords
-
-        return callback(new Error('Failed to write ' + failedRecords.length + ' records'))
+        callback(new Error(`Failed to write ${failedRecords.length} records`))
       }
 
-      this.queue = []
-
-      return callback()
+      callback()
     })
     .catch((err) => callback(err))
   };
@@ -95,23 +94,16 @@ class KinesisWritable extends Writable {
     this.queue.push(data)
 
     if (this.queue.length >= this.highWaterMark) {
-      process.nextTick(() => {
-        this.uncork()
-        callback()
-      })
+      return this.writeRecords(callback)
     }
 
-    return callback()
+    if (this._queueCheckTimer) {
+      clearTimeout(this._queueCheckTimer)
+    }
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(() => null), 500)
+
+    callback()
   }
-
-  _writev (chunks, callback) {
-    console.log('_writev', chunks, this.queue)
-    if (this.queue.length === 0) {
-      return callback()
-    }
-
-    return this.writeRecords(callback)
-  };
 };
 
 module.exports = KinesisWritable

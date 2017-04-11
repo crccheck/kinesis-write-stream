@@ -13,11 +13,16 @@ class NoiseReadable extends Readable {
   constructor (options = {}) {
     options.objectMode = true
     super(options)
+    this._alphabet = '0123456789ABCDEF'.split('')
   }
 
   _read (size) {
-    this.push({foo: 'a'})
-    // this.push(JSON.stringify({foo: 'a'}))
+    const throbber = this._alphabet.shift()
+    const data = throbber
+    // const data = {foo: throbber}
+    this._alphabet.push(throbber)
+
+    setTimeout(() => this.push(data), 1000 * Math.random())
   }
 }
 
