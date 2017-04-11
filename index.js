@@ -77,6 +77,7 @@ class KinesisWritable extends Writable {
       this.logger.info('Wrote %d records to Kinesis', records.length - response.FailedRecordCount)
 
       if (response.FailedRecordCount !== 0) {
+        // TODO emit()
         this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
 
         const failedRecords = []
