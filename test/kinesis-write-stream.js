@@ -178,7 +178,7 @@ describe('KinesisWritable', function () {
     })
 
     it('should emit error on records errors', function (done) {
-      this.client.putRecords = AWSPromise.rejects('Fail')
+      this.client.putRecords = AWSPromise.resolves(errorResponseFixture)
 
       this.stream.on('error', function (err) {
         expect(err).to.be.ok
