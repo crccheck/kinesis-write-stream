@@ -3,22 +3,6 @@ const { Writable } = require('stream')
 const promiseRetry = require('promise-retry')
 
 
-const retryAWS = (client/*: Object */, funcName/*: string */, params/*: Object */)/*: Promise<Object> */ =>
-  promiseRetry((retry/*: function */, number/*: number */) => {
-    if (number > 1) {
-      // log.warn('AWS %s.%s attempt: %d', client.constructor.__super__.serviceIdentifier, funcName, number);
-    }
-    return client[funcName](params).promise()
-      .catch((err) => {
-        if (!err.retryable) {
-          throw new Error(err)
-        }
-
-        retry(err)
-      })
-  })
-
-
 class KinesisWritable extends Writable {
   /*:: client: Object */
   /*:: logger: {debug: Function, info: Function, warn: Function} */
@@ -61,7 +45,7 @@ class KinesisWritable extends Writable {
     const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
     const records = dataToPut.map(this.prepRecord.bind(this))
 
-    retryAWS(this.client, 'putRecords', {
+    this.retryAWS('putRecords', {
       Records: records,
       StreamName: this.streamName,
     })
@@ -104,6 +88,22 @@ class KinesisWritable extends Writable {
 
     callback()
   }
-};
+
+  retryAWS (funcName/*: string */, params/*: Object */)/*: Promise<Object> */ {
+    return promiseRetry((retry/*: function */, number/*: number */) => {
+      if (number > 1) {
+        this.logger.warn('AWS %s.%s attempt: %d', this.client.constructor.__super__.serviceIdentifier, funcName, number)
+      }
+      return this.client[funcName](params).promise()
+        .catch((err) => {
+          if (!err.retryable) {
+            throw new Error(err)
+          }
+
+          retry(err)
+        })
+    })
+  }
+}
 
 module.exports = KinesisWritable
