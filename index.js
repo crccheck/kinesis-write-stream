@@ -5,9 +5,6 @@ const FlushWritable = require('flushwritable')
 
 function voidFunction () {}
 
-const PROMISE_RETRY_OPTIONS = {
-  minTimeout: 500,
-}
 
 class KinesisWritable extends FlushWritable {
   /*:: client: Object */
@@ -17,7 +14,11 @@ class KinesisWritable extends FlushWritable {
   /*:: highWaterMark: number */
   /*:: wait: number */
   /*:: _queueCheckTimer: number */
-  constructor (client, streamName, {highWaterMark = 16, logger, wait = 500} = {}) {
+  constructor (client, streamName, {highWaterMark = 16,
+                                    logger,
+                                    maxRetries = 3,
+                                    retryTimeout = 100,
+                                    wait = 500} = {}) {
     super({objectMode: true, highWaterMark: Math.min(highWaterMark, 500)})
 
     if (!client) {
@@ -35,6 +36,8 @@ class KinesisWritable extends FlushWritable {
       highWaterMark = 500
     }
     this.highWaterMark = highWaterMark
+    this.maxRetries = 3
+    this.retryTimeout = retryTimeout
     this.wait = wait
     this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
 
@@ -128,7 +131,7 @@ class KinesisWritable extends FlushWritable {
 
           retry(err)
         })
-    }, PROMISE_RETRY_OPTIONS)
+    }, {retries: this.maxRetries, minTimeout: this.retryTimeout})
   }
 }
 
