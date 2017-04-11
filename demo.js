@@ -3,11 +3,13 @@ const KinesisWritable = require('kinesis-write-stream')
 const AWS = require('aws-sdk')
 const bunyan = require('bunyan')
 
+const WAIT = 500
+
 const logger = bunyan.createLogger({name: 'demo', level: 'debug'})
 
 const client = new AWS.Kinesis()
 
-const stream = new KinesisWritable(client, process.argv[2] || 'demo', {logger})
+const stream = new KinesisWritable(client, process.argv[2] || 'demo', {logger, wait: WAIT})
 
 class NoiseReadable extends Readable {
   constructor (options = {}) {
@@ -22,7 +24,7 @@ class NoiseReadable extends Readable {
     // const data = {foo: throbber}
     this._alphabet.push(throbber)
 
-    setTimeout(() => this.push(data), 1000 * Math.random())
+    setTimeout(() => this.push(data), WAIT * 1.1 * Math.random())
   }
 }
 

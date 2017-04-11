@@ -3,14 +3,17 @@ const { Writable } = require('stream')
 const promiseRetry = require('promise-retry')
 
 
+function voidFunction () {}
+
 class KinesisWritable extends Writable {
   /*:: client: Object */
   /*:: logger: {debug: Function, info: Function, warn: Function} */
   /*:: queue: Object[] */
   /*:: streamName: string */
   /*:: highWaterMark: number */
+  /*:: wait: number */
   /*:: _queueCheckTimer: number */
-  constructor (client, streamName, {highWaterMark = 16, logger} = {}) {
+  constructor (client, streamName, {highWaterMark = 16, logger, wait = 500} = {}) {
     super({objectMode: true, highWaterMark: Math.min(highWaterMark, 500)})
 
     this.client = client
@@ -21,7 +24,8 @@ class KinesisWritable extends Writable {
       highWaterMark = 500
     }
     this.highWaterMark = highWaterMark
-    this._queueCheckTimer = setTimeout(() => this.writeRecords(() => null), 500)
+    this.wait = wait
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
 
     this.queue = []
   }
@@ -39,8 +43,12 @@ class KinesisWritable extends Writable {
   };
 
   writeRecords (callback) {
-    const queueLength = this.queue.length
-    this.logger.debug('Writing %d records to Kinesis', queueLength)
+    if (!this.queue.length) {
+      callback()
+      console.log(callback)
+      return
+    }
+    this.logger.debug('Writing %d records to Kinesis', this.queue.length)
 
     const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
     const records = dataToPut.map(this.prepRecord.bind(this))
@@ -84,7 +92,7 @@ class KinesisWritable extends Writable {
     if (this._queueCheckTimer) {
       clearTimeout(this._queueCheckTimer)
     }
-    this._queueCheckTimer = setTimeout(() => this.writeRecords(() => null), 500)
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
 
     callback()
   }
