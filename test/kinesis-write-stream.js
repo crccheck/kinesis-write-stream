@@ -29,10 +29,14 @@ const AWSPromise = {
 }
 
 describe('KinesisWritable', function () {
-  beforeEach(function () {
-    this.sinon = sinon.sandbox.create()
+  let client
+  let sandbox
+  let stream
 
-    this.client = {
+  beforeEach(function () {
+    sandbox = sinon.sandbox.create()
+
+    client = {
       putRecords: sinon.stub(),
       constructor: {
         __super__: {
@@ -41,13 +45,13 @@ describe('KinesisWritable', function () {
       },
     }
 
-    this.stream = new KinesisWritable(this.client, 'streamName', {
+    stream = new KinesisWritable(client, 'streamName', {
       highWaterMark: 6,
     })
   })
 
   afterEach(function () {
-    this.sinon.restore()
+    sandbox.restore()
   })
 
   describe('constructor', function () {
@@ -73,7 +77,7 @@ describe('KinesisWritable', function () {
     xit('should return a random partition key padded to 4 digits', function () {
       var kinesis = new KinesisWritable({}, 'foo')
 
-      this.sinon.stub(_, 'random').returns(10)
+      sandbox.stub(_, 'random').returns(10)
 
       expect(kinesis.getPartitionKey()).to.eq('0010')
 
@@ -83,44 +87,44 @@ describe('KinesisWritable', function () {
     })
 
     it('should be called with the current record being added', function (done) {
-      this.client.putRecords = AWSPromise.resolves(successResponseFixture)
-      this.sinon.stub(this.stream, 'getPartitionKey').returns('1234')
+      client.putRecords = AWSPromise.resolves(successResponseFixture)
+      sandbox.stub(stream, 'getPartitionKey').returns('1234')
 
-      this.stream.on('finish', () => {
-        expect(this.stream.getPartitionKey).to.have.been.calledWith(recordsFixture[0])
+      stream.on('finish', () => {
+        expect(stream.getPartitionKey).to.have.been.calledWith(recordsFixture[0])
         done()
       })
 
-      streamArray([recordsFixture[0]]).pipe(this.stream)
+      streamArray([recordsFixture[0]]).pipe(stream)
     })
 
     it('should use custom getPartitionKey if defined', function (done) {
-      this.client.putRecords = AWSPromise.resolves(successResponseFixture)
+      client.putRecords = AWSPromise.resolves(successResponseFixture)
 
-      this.stream.getPartitionKey = function () {
+      stream.getPartitionKey = function () {
         return 'custom-partition'
       }
 
-      this.sinon.spy(this.stream, 'getPartitionKey')
+      sandbox.spy(stream, 'getPartitionKey')
 
-      this.stream.on('finish', () => {
-        expect(this.stream.getPartitionKey).to.have.returned('custom-partition')
+      stream.on('finish', () => {
+        expect(stream.getPartitionKey).to.have.returned('custom-partition')
         done()
       })
 
-      streamArray(recordsFixture).pipe(this.stream)
+      streamArray(recordsFixture).pipe(stream)
     })
   })
 
   describe('_write', function () {
     it('should write to Kinesis when stream is closed', function (done) {
-      this.client.putRecords = AWSPromise.resolves(successResponseFixture)
-      this.sinon.stub(this.stream, 'getPartitionKey').returns('1234')
+      client.putRecords = AWSPromise.resolves(successResponseFixture)
+      sandbox.stub(stream, 'getPartitionKey').returns('1234')
 
-      this.stream.on('finish', () => {
-        expect(this.client.putRecords).to.have.been.calledOnce
+      stream.on('finish', () => {
+        expect(client.putRecords).to.have.been.calledOnce
 
-        expect(this.client.putRecords).to.have.been.calledWith({
+        expect(client.putRecords).to.have.been.calledWith({
           Records: writeFixture,
           StreamName: 'streamName',
         })
@@ -128,77 +132,77 @@ describe('KinesisWritable', function () {
         done()
       })
 
-      streamArray(recordsFixture).pipe(this.stream)
+      streamArray(recordsFixture).pipe(stream)
     })
 
     it('should do nothing if there is nothing in the queue when the stream is closed', function (done) {
-      this.client.putRecords = AWSPromise.resolves(successResponseFixture)
+      client.putRecords = AWSPromise.resolves(successResponseFixture)
 
-      this.stream.on('finish', () => {
-        expect(this.client.putRecords).to.have.been.calledOnce
+      stream.on('finish', () => {
+        expect(client.putRecords).to.have.been.calledOnce
 
         done()
       })
 
       for (var i = 0; i < 6; i++) {
-        this.stream.write(recordsFixture)
+        stream.write(recordsFixture)
       }
 
-      this.stream.end()
+      stream.end()
     })
 
     it('should buffer records up to highWaterMark', function (done) {
-      this.client.putRecords.yields(null, successResponseFixture)
+      client.putRecords = AWSPromise.resolves(successResponseFixture)
 
       for (var i = 0; i < 4; i++) {
-        this.stream.write(recordsFixture[0])
+        stream.write(recordsFixture[0])
       }
 
-      this.stream.write(recordsFixture[0], function () {
-        expect(this.client.putRecords).to.not.have.been.called
+      stream.write(recordsFixture[0], () => {
+        expect(client.putRecords).to.not.have.been.called
 
-        this.stream.write(recordsFixture[0], function () {
-          expect(this.client.putRecords).to.have.been.calledOnce
+        stream.write(recordsFixture[0], () => {
+          expect(client.putRecords).to.have.been.calledOnce
 
           done()
-        }.bind(this))
-      }.bind(this))
+        })
+      })
     })
 
     it('should emit error on Kinesis error', function (done) {
-      this.client.putRecords = AWSPromise.rejects('Fail')
+      client.putRecords = AWSPromise.rejects('Fail')
 
-      this.stream.on('error', function (err) {
+      stream.on('error', function (err) {
         expect(err.message).to.eq('Fail')
 
         done()
       })
 
-      this.stream.end({ foo: 'bar' })
+      stream.end({ foo: 'bar' })
     })
 
     it('should emit error on records errors', function (done) {
-      this.client.putRecords = AWSPromise.resolves(errorResponseFixture)
+      client.putRecords = AWSPromise.resolves(errorResponseFixture)
 
-      this.stream.on('error', function (err) {
+      stream.on('error', function (err) {
         expect(err).to.be.ok
 
         done()
       })
 
-      this.stream.end({ foo: 'bar' })
+      stream.end({ foo: 'bar' })
     })
 
     it('should retry failed records', function (done) {
-      this.sinon.stub(this.stream, 'getPartitionKey').returns('1234')
+      sandbox.stub(stream, 'getPartitionKey').returns('1234')
 
-      this.client.putRecords = AWSPromise.rejects({retryable: true})
-      this.client.putRecords.onCall(2).returns({promise: () => Promise.resolve(successResponseFixture)})
+      client.putRecords = AWSPromise.rejects({retryable: true})
+      client.putRecords.onCall(2).returns({promise: () => Promise.resolve(successResponseFixture)})
 
-      this.stream.on('finish', () => {
-        expect(this.client.putRecords).to.have.been.calledThrice
+      stream.on('finish', () => {
+        expect(client.putRecords).to.have.been.calledThrice
 
-        expect(this.client.putRecords.secondCall).to.have.been.calledWith({
+        expect(client.putRecords.secondCall).to.have.been.calledWith({
           Records: writeFixture,
           StreamName: 'streamName',
         })
@@ -206,7 +210,7 @@ describe('KinesisWritable', function () {
         done()
       })
 
-      streamArray(recordsFixture).pipe(this.stream)
+      streamArray(recordsFixture).pipe(stream)
     })
   })
 })
