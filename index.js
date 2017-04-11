@@ -61,11 +61,32 @@ class KinesisWritable extends FlushWritable {
     callback()
   }
 
+  flushWrite () {
+    return new Promise((resolve, reject) => {
+      this.writeRecords((err) => {
+        if (err) {
+          return reject(err)
+        }
+
+        if (this.queue.length) {
+          return reject(new Error(`${this.queue.length} items left to push`))
+        }
+
+        resolve()
+      })
+    })
+  }
+
   _flush (callback) {
     if (this._queueCheckTimer) {
       clearTimeout(this._queueCheckTimer)
     }
-    this.writeRecords(callback)  // TODO what if this.queue.length > this.highWaterMark?
+
+    promiseRetry((retry, number) => {
+      return this.flushWrite()
+        .catch(retry)
+    }, {minTimeout: this.retryTimeout})
+    .then(callback)
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -73,7 +94,7 @@ class KinesisWritable extends FlushWritable {
     return '0'
   };
 
-  prepRecord (record) {
+  _prepRecord (record) {
     return {
       Data: JSON.stringify(record),
       PartitionKey: this.getPartitionKey(record),
@@ -88,7 +109,7 @@ class KinesisWritable extends FlushWritable {
     this.logger.debug('Writing %d records to Kinesis', this.queue.length)
 
     const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
-    const records = dataToPut.map(this.prepRecord.bind(this))
+    const records = dataToPut.map(this._prepRecord.bind(this))
 
     this.retryAWS('putRecords', {
       Records: records,

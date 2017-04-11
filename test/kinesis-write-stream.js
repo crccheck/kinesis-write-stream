@@ -7,7 +7,8 @@ const _ = require('lodash')
 const KinesisWritable = require('../')
 const recordsFixture = require('./fixture/records')
 const successResponseFixture = require('./fixture/success-response')
-const errorResponseFixture = require('./fixture/failed-response')
+const failedResponseFixture = require('./fixture/failed-response')
+const successAfterFailedResponseFixture = require('./fixture/success-after-failed-response')
 const writeFixture = require('./fixture/write-fixture')
 
 chai.use(sinonChai)
@@ -182,7 +183,7 @@ describe('KinesisWritable', function () {
     })
 
     it('should emit error on records errors', function (done) {
-      client.putRecords = AWSPromise.resolves(errorResponseFixture)
+      client.putRecords = AWSPromise.resolves(failedResponseFixture)
 
       stream.on('error', function (err) {
         expect(err).to.be.ok
@@ -193,7 +194,7 @@ describe('KinesisWritable', function () {
       stream.end({ foo: 'bar' })
     })
 
-    it('should retry failed records', function (done) {
+    it('should retry failed putRecords requests', function (done) {
       sandbox.stub(stream, 'getPartitionKey').returns('1234')
 
       client.putRecords = AWSPromise.rejects({retryable: true})
@@ -204,6 +205,29 @@ describe('KinesisWritable', function () {
 
         expect(client.putRecords.secondCall).to.have.been.calledWith({
           Records: writeFixture,
+          StreamName: 'streamName',
+        })
+
+        done()
+      })
+
+      streamArray(recordsFixture).pipe(stream)
+    })
+
+    it('should retry failed records', function (done) {
+      sandbox.stub(stream, 'getPartitionKey').returns('1234')
+
+      client.putRecords = AWSPromise.resolves(failedResponseFixture)
+      client.putRecords.onCall(1).returns({promise: () => Promise.resolve(successAfterFailedResponseFixture)})
+      stream.once('error', () => {
+        expect(stream.queue).to.deep.equal([ { someKey: 2 }, { someKey: 4 } ])
+      })
+
+      stream.on('finish', () => {
+        expect(client.putRecords).to.have.been.calledTwice
+
+        expect(client.putRecords.secondCall).to.have.been.calledWith({
+          Records: [{ Data: '{"someKey":2}', PartitionKey: '1234' }, { Data: '{"someKey":4}', PartitionKey: '1234' }],
           StreamName: 'streamName',
         })
 
