@@ -203,6 +203,7 @@ describe('KinesisWritable', function () {
     })
 
     it('should retry failed records', function (done) {
+      let putRecordsCount = 0
       sandbox.stub(stream, 'getPartitionKey').returns('1234')
 
       client.putRecords = AWSPromise.resolves(failedResponseFixture)
@@ -210,7 +211,7 @@ describe('KinesisWritable', function () {
       stream.once('error', () => {
         expect(stream.queue).to.deep.equal([ { someKey: 2 }, { someKey: 4 } ])
       })
-
+      stream.on('kinesis.putRecords', () => putRecordsCount++)
       stream.on('finish', () => {
         expect(client.putRecords).to.have.been.calledTwice
 
@@ -218,6 +219,8 @@ describe('KinesisWritable', function () {
           Records: [{ Data: '{"someKey":2}', PartitionKey: '1234' }, { Data: '{"someKey":4}', PartitionKey: '1234' }],
           StreamName: 'streamName',
         })
+
+        expect(putRecordsCount).to.equal(2)
 
         done()
       })

@@ -103,9 +103,9 @@ class KinesisWritable extends FlushWritable {
       })
       .then((response) => {
         this.logger.info('Wrote %d records to Kinesis', records.length - response.FailedRecordCount)
+        this.emit('kinesis.putRecords', response)
 
         if (response.FailedRecordCount !== 0) {
-          // TODO emit()
           this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
 
           const failedRecords = []
@@ -118,7 +118,6 @@ class KinesisWritable extends FlushWritable {
           this.queue.unshift(...failedRecords)
 
           resolve()
-          // reject(new Error(`Failed to write ${failedRecords.length} records`))
         }
 
         resolve()
