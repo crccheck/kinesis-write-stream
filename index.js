@@ -2,6 +2,7 @@
 const promiseRetry = require('promise-retry')
 const FlushWritable = require('flushwritable')
 
+/*:: type Record = {Data: string, PartitionKey: string} */
 
 class KinesisWritable extends FlushWritable {
   /*:: client: Object */
@@ -76,23 +77,23 @@ class KinesisWritable extends FlushWritable {
   }
 
   // eslint-disable-next-line no-unused-vars
-  getPartitionKey (record) {
+  getPartitionKey (data/*: Object */)/*: string */ {
     return '0'
   };
 
-  _prepRecord (record) {
+  _prepRecord (data/*: Object */)/*: Record */ {
     return {
-      Data: JSON.stringify(record),
-      PartitionKey: this.getPartitionKey(record),
+      Data: JSON.stringify(data),
+      PartitionKey: this.getPartitionKey(data),
     }
   };
 
-  writeRecords () {
+  writeRecords ()/*: Promise<void> */ {
     return new Promise((resolve, reject) => {
       if (!this.queue.length) {
-        resolve()
-        return  // Nothing to do
+        return resolve()
       }
+
       this.logger.debug('Writing %d records to Kinesis', this.queue.length)
       const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
       const records = dataToPut.map(this._prepRecord.bind(this))
@@ -117,10 +118,10 @@ class KinesisWritable extends FlushWritable {
           })
           this.queue.unshift(...failedRecords)
 
-          resolve()
+          return resolve()
         }
 
-        resolve()
+        return resolve()
       })
       .catch((err) => reject(err))
     })
