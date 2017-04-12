@@ -173,8 +173,8 @@ describe('KinesisWritable', function () {
     it('should emit error on Kinesis error', function (done) {
       client.putRecords = AWSPromise.rejects('Fail')
 
-      stream.on('error', function (err) {
-        expect(err.message).to.eq('Fail')
+      stream.on('error', (err) => {
+        expect(err.message).to.equal('Fail')
 
         done()
       })
@@ -185,7 +185,7 @@ describe('KinesisWritable', function () {
     it('should emit error on records errors', function (done) {
       client.putRecords = AWSPromise.resolves(failedResponseFixture)
 
-      stream.on('error', function (err) {
+      stream.on('error', (err) => {
         expect(err).to.be.ok
 
         done()
