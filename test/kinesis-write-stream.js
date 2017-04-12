@@ -182,18 +182,6 @@ describe('KinesisWritable', function () {
       stream.end({ foo: 'bar' })
     })
 
-    it('should emit error on records errors', function (done) {
-      client.putRecords = AWSPromise.resolves(failedResponseFixture)
-
-      stream.on('error', (err) => {
-        expect(err).to.be.ok
-
-        done()
-      })
-
-      stream.end({ foo: 'bar' })
-    })
-
     it('should retry failed putRecords requests', function (done) {
       sandbox.stub(stream, 'getPartitionKey').returns('1234')
 

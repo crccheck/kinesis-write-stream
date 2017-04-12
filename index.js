@@ -65,7 +65,12 @@ class KinesisWritable extends FlushWritable {
       clearTimeout(this._queueCheckTimer)
     }
 
-    this.writeRecords()
+    return this.writeRecords()
+      .then(() => {
+        if (this.queue.length) {
+          return this._flush(() => null)
+        }
+      })
       .then(callback)
       .catch(callback)
   }
@@ -112,7 +117,8 @@ class KinesisWritable extends FlushWritable {
           })
           this.queue.unshift(...failedRecords)
 
-          reject(new Error(`Failed to write ${failedRecords.length} records`))
+          resolve()
+          // reject(new Error(`Failed to write ${failedRecords.length} records`))
         }
 
         resolve()
