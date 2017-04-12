@@ -3,9 +3,6 @@ const promiseRetry = require('promise-retry')
 const FlushWritable = require('flushwritable')
 
 
-function voidFunction () {}
-
-
 class KinesisWritable extends FlushWritable {
   /*:: client: Object */
   /*:: logger: {debug: Function, info: Function, warn: Function} */
@@ -39,7 +36,7 @@ class KinesisWritable extends FlushWritable {
     this.maxRetries = 3
     this.retryTimeout = retryTimeout
     this.wait = wait
-    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(), this.wait)
 
     this.queue = []
   }
@@ -50,36 +47,27 @@ class KinesisWritable extends FlushWritable {
     this.queue.push(data)
 
     if (this.queue.length >= this.highWaterMark) {
-      return this.writeRecords(callback)
+      return this.writeRecords()
+        .then(callback)
+        .catch(callback)
     }
 
     if (this._queueCheckTimer) {
       clearTimeout(this._queueCheckTimer)
     }
-    this._queueCheckTimer = setTimeout(() => this.writeRecords(voidFunction), this.wait)
+    this._queueCheckTimer = setTimeout(() => this.writeRecords(), this.wait)
 
     callback()
   }
 
-  _flush (callback, inRecursion) {
+  _flush (callback) {
     if (this._queueCheckTimer) {
       clearTimeout(this._queueCheckTimer)
     }
 
-    if (!this.queue.length) {
-      callback()
-      return
-    }
-
-    this.writeRecords((err) => {
-      if (err) {
-        callback(err)
-        return
-      }
-
-      // TODO this._flush(callback)
-      callback()
-    })
+    this.writeRecords()
+      .then(callback)
+      .catch(callback)
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -94,42 +82,44 @@ class KinesisWritable extends FlushWritable {
     }
   };
 
-  writeRecords (callback) {
-    if (!this.queue.length) {
-      callback()
-      return  // Nothing to do
-    }
-    this.logger.debug('Writing %d records to Kinesis', this.queue.length)
-    const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
-    const records = dataToPut.map(this._prepRecord.bind(this))
-
-    this.retryAWS('putRecords', {
-      Records: records,
-      StreamName: this.streamName,
-    })
-    .then((response) => {
-      this.logger.info('Wrote %d records to Kinesis', records.length - response.FailedRecordCount)
-
-      if (response.FailedRecordCount !== 0) {
-        // TODO emit()
-        this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
-
-        const failedRecords = []
-        response.Records.forEach((record, idx) => {
-          if (record.ErrorCode) {
-            this.logger.warn('Failed record with message: %s', record.ErrorMessage)
-            failedRecords.push(dataToPut[idx])
-          }
-        })
-        this.queue.unshift(...failedRecords)
-
-        callback(new Error(`Failed to write ${failedRecords.length} records`))
+  writeRecords () {
+    return new Promise((resolve, reject) => {
+      if (!this.queue.length) {
+        resolve()
+        return  // Nothing to do
       }
+      this.logger.debug('Writing %d records to Kinesis', this.queue.length)
+      const dataToPut = this.queue.splice(0, Math.min(this.queue.length, this.highWaterMark))
+      const records = dataToPut.map(this._prepRecord.bind(this))
 
-      callback()
+      this.retryAWS('putRecords', {
+        Records: records,
+        StreamName: this.streamName,
+      })
+      .then((response) => {
+        this.logger.info('Wrote %d records to Kinesis', records.length - response.FailedRecordCount)
+
+        if (response.FailedRecordCount !== 0) {
+          // TODO emit()
+          this.logger.warn('Failed writing %d records to Kinesis', response.FailedRecordCount)
+
+          const failedRecords = []
+          response.Records.forEach((record, idx) => {
+            if (record.ErrorCode) {
+              this.logger.warn('Failed record with message: %s', record.ErrorMessage)
+              failedRecords.push(dataToPut[idx])
+            }
+          })
+          this.queue.unshift(...failedRecords)
+
+          reject(new Error(`Failed to write ${failedRecords.length} records`))
+        }
+
+        resolve()
+      })
+      .catch((err) => reject(err))
     })
-    .catch((err) => callback(err))
-  };
+  }
 
   retryAWS (funcName/*: string */, params/*: Object */)/*: Promise<Object> */ {
     return promiseRetry((retry/*: function */, number/*: number */) => {
